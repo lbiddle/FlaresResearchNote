@@ -467,11 +467,13 @@ def get_start_stop(x, amp, tpeak, fwhm, sampling_rate):
     # import pdb; pdb.set_trace()
 
     return start, stop, flare_start, flare_stop
-def identify_flare(x, y, yerr, fl_start, fl_stop, x_truth, y_truth):
-
+def identify_flare(x, y, yerr, fl_start, fl_stop, x_truth, y_truth, do_pause):
+    y_input = np.copy(y)
+    yerr_input = np.copy(yerr)
+    x_input = np.copy(x)
     check_range = [0.60, 1.50]
-    y_elements = np.arange(0,len(y),1)
-    y_elements = y_elements[(x >= check_range[0]) & (x <= check_range[1])] + 1
+    y_elements = np.arange(0,len(y_input),1)
+    y_elements = y_elements[(x >= check_range[0]) & (x <= check_range[1])]
     y = y[(x >= check_range[0]) & (x <= check_range[1])] + 1
     yerr = yerr[(x >= check_range[0]) & (x <= check_range[1])]
     x = x[(x >= check_range[0]) & (x <= check_range[1])]
@@ -512,10 +514,11 @@ def identify_flare(x, y, yerr, fl_start, fl_stop, x_truth, y_truth):
         # print(' ')
 
         if False in segment_satisfy:
+            start_count = False
             continue
         else:
             if start_count == True:
-                if segment_elements[-1] - track_elements[-1] == 1:
+                if segment_elements[-1] - track_elements[-1] == 1:  # Don't let it add elements after the streak breaks
                     track_elements.append(segment_elements[-1])
             if start_count == False:
                 for elmt in segment_elements:
@@ -523,31 +526,36 @@ def identify_flare(x, y, yerr, fl_start, fl_stop, x_truth, y_truth):
                 start_count = True
 
     if len(track_elements) > 0:
-        track_elements = list(np.concatenate(([track_elements[0]-1],track_elements)))
-        track_elements = list(np.concatenate(([track_elements[0] - 1], track_elements)))
-        track_elements.append(track_elements[-1] + 1)
-        track_elements.append(track_elements[-1] + 1)
-        track_elements.append(track_elements[-1] + 1)
-        track_elements.append(track_elements[-1] + 1)
-        track_elements.append(track_elements[-1] + 1)
+        for pre_flare_i in range(2):
+            if track_elements[0] > 0:
+                track_elements = list(np.concatenate(([track_elements[0] - 1],track_elements)))
+        for post_flare_i in range(5):
+            if track_elements[-1] + 1 <= y_elements[-1]:
+                track_elements.append(track_elements[-1] + 1)
 
-    # print('baseline_mean:  ' + str(baseline_mean))
-    # print('baseline_std:  ' + str(baseline_std))
-    # plt.plot(x_truth, y_truth, color='#000000', lw=1, zorder=0)
-    # plt.plot([min(x), max(x)], [0, 0], color='#000000', alpha=0.3, zorder=0)
-    # # plt.plot(x, y-1)
-    # plt.errorbar(x, y - 1, yerr=yerr, zorder=0)
-    # if len(track_elements) > 0:
-    #     plt.scatter(x[track_elements], y[track_elements] - 1, color='red', zorder=1)
-    # plt.plot([fl_start, fl_start], [min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)])], '--', color='#000000', zorder=0)
-    # plt.plot([fl_stop, fl_stop], [min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)])], '--', color='#000000', zorder=0)
-    # plt.xlim(min(x), max(x))
-    # plt.ylim(min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)]))
-    # plt.show()
-    # import pdb; pdb.set_trace()
 
-    return track_elements
+    track_elements = np.array(track_elements)[np.array(track_elements) <= y_elements[-1]]
 
+    if do_pause == True:
+        # print('baseline_mean:  ' + str(baseline_mean))
+        # print('baseline_std:  ' + str(baseline_std))
+        plt.plot(x_truth, y_truth, color='#000000', lw=1, zorder=0)
+        plt.plot([min(x), max(x)], [0, 0], color='#000000', alpha=0.3, zorder=0)
+        # plt.plot(x, y-1)
+        plt.errorbar(x, y - 1, yerr=yerr, zorder=0)
+        if len(track_elements) > 0:
+            plt.scatter(x[track_elements], y[track_elements] - 1, color='red', zorder=1)
+        plt.plot([fl_start, fl_start], [min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)])], '--', color='#000000', zorder=0)
+        plt.plot([fl_stop, fl_stop], [min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)])], '--', color='#000000', zorder=0)
+        plt.xlim(min(x), max(x))
+        plt.ylim(min(y-1)-yerr[0], 1.15*max([max(y_truth),max(y-1)]))
+        plt.show()
+        import pdb; pdb.set_trace()
+
+    print('TRACK ELEMENTS: ')
+    print(track_elements)
+
+    return y_input, yerr_input, x_input, track_elements
 
 def downsample(x, cadence_min):
     '''
@@ -829,14 +837,14 @@ def log_probability_D14(theta, x, y, yerr):
     return lp + log_likelihood_D14(theta, x, y, yerr)
 
 
-np.random.seed(4)
+np.random.seed(444)
 
 sampling_rate = 1.
 x_fine_initial = np.linspace(0., 15., int((15.*u.d).to(u.s).value))
 
 test_SNRs = [4., 8., 16., 32., 64., 128., 256.]
 # test_sampling_rates = [60., 55., 45., 40., 35., 30., 25., 20., 15., 12., 10., 8., 5., 2., 1., 1./2.]
-test_sampling_rates = list(np.random.uniform(1./2., 40.0, 100000))
+test_sampling_rates = list(np.random.uniform(1./2., 50.0, 100000))
 # test_sampling_rates = [11., 5., 2., 1., 1./2.]
 # test_impulsivities = [5760., 2880., 1440., 720., 360., 180., 90., 45., 32., 24., 12.]
 test_impulsivities = [180.]
@@ -856,6 +864,13 @@ for bep in range(1):
     for rate_i,rate in enumerate(test_sampling_rates):
         for SNR in test_SNRs:
             for imp in test_impulsivities:
+
+                print('\n\n################################################')
+                print('#      ' + "{:06d}".format(rate_i + 1))
+                print('RATE:  ' + str(rate))
+                print('SNR:   ' + str(SNR))
+                print('################################################')
+                print(' ')
 
 
                 # fwhm_true = ((amp_true/imp) * u.min).to(u.d).value
@@ -877,10 +892,25 @@ for bep in range(1):
                 x_truth, y_truth, y_data, yerr_data = flare_profile(t=x_data, noise=err, exptime=rate, amp=amp_true, tpeak=tpeak_true, fwhm=fwhm_true)
 
 
-                flare_id = identify_flare(x=x_data, y=y_data, yerr=yerr_data, fl_start=flare_start_time, fl_stop=flare_stop_time, x_truth=x_truth, y_truth=y_truth)
+                # if (rate_i+1 == 10) and (SNR >= 128.):
+                #     y_data_test, yerr_data_test, x_data_test, flare_id = identify_flare(x=x_data, y=y_data, yerr=yerr_data, fl_start=flare_start_time,
+                #                               fl_stop=flare_stop_time, x_truth=x_truth, y_truth=y_truth, do_pause=True)
+                # else:
+                y_data_test, yerr_data_test, x_data_test, flare_id = identify_flare(x=x_data, y=y_data, yerr=yerr_data,
+                                                                                    fl_start=flare_start_time,
+                                                                                    fl_stop=flare_stop_time,
+                                                                                    x_truth=x_truth, y_truth=y_truth,
+                                                                                    do_pause=False)
+                print('FLARE ID:  ')
+                print(flare_id)
+                print(' ')
 
                 if len(flare_id) > 0:
-                    obs_start_time = min(x_data[flare_id])
+                    try:
+                        obs_start_time = min(x_data[flare_id])
+                    except:
+                        print('issue with obs start time')
+                        import pdb; pdb.set_trace()
                     obs_end_time = max(x_data[flare_id])
                 else:
                     obs_start_time = float('nan')
@@ -904,7 +934,7 @@ for bep in range(1):
 
                 tpeak_frac_truth = get_tpeak_frac(x=x_data, tpeak=tpeak_true)
 
-                eqdur_truth = calc_eqdur_truth(start=start_time, end=end_time, amp=amp_true, tpeak=tpeak_true, fwhm=fwhm_true)
+                eqdur_truth = calc_eqdur_truth(start=flare_start_time, end=flare_stop_time, amp=amp_true, tpeak=tpeak_true, fwhm=fwhm_true)
                 true_pars = [amp_true, tpeak_true, fwhm_true, eqdur_truth]
 
                 if do_plots == True:
@@ -1016,13 +1046,6 @@ for bep in range(1):
                         # print('FWHM (d): ' + str(fwhm_true))
                         # print('FWHM (min): ' + str((fwhm_true * u.d).to(u.min).value))
                         # print(' ')
-
-                        print('\n\n################################################')
-                        print('#      '+"{:06d}".format(rate_i+1))
-                        print('RATE:  ' + str(rate))
-                        print('SNR:   ' + str(SNR))
-                        print('################################################')
-                        print(' ')
 
                         fit = flare_equation(x_fine, amp_ml, tpeak_ml, fwhm_ml)
                         fit_D14 = D14_equation(x_fine, amp_ml_D14, tpeak_ml_D14, fwhm_ml_D14)
@@ -1355,11 +1378,6 @@ for bep in range(1):
                                      obs_start=obs_start_time, obs_end=obs_end_time, fit_tpf=tpeak_frac_fit,
                                      true_tpf=tpeak_frac_truth, fit_profile="D14", Test=save_test_dat)
 
-                        print('\n\n################################################')
-                        print('#      '+"{:06d}".format(rate_i+1))
-                        print('RATE:  ' + str(rate))
-                        print('SNR:   ' + str(SNR))
-                        print('################################################')
                         print('------------------')
                         print('No Flare Identified')
                         print('------------------')
@@ -1419,12 +1437,6 @@ for bep in range(1):
                                  obs_start=obs_start_time, obs_end=obs_end_time, fit_tpf=tpeak_frac_fit,
                                  true_tpf=tpeak_frac_truth, fit_profile="D14", Test=save_test_dat)
 
-                    print('\n\n################################################')
-                    print('#      '+"{:06d}".format(rate_i+1))
-                    print('RATE:  ' + str(rate))
-                    print('SNR:   ' + str(SNR))
-                    print('################################################')
-                    print(' ')
                     print('------------------')
                     print('Too Small Data Train')
                     print('------------------')
